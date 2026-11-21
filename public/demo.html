@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>TaskMaster – live notifications demo</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ body{font:15px system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#222}
+ h1{font-size:1.4rem} input,button,select{font:inherit;padding:.45rem .6rem;margin:.15rem 0}
+ button{cursor:pointer} .card{border:1px solid #ddd;border-radius:8px;padding:1rem;margin:1rem 0}
+ #log{background:#111;color:#8f8;padding:.8rem;border-radius:6px;min-height:120px;font:13px ui-monospace,monospace;white-space:pre-wrap}
+ small{color:#666}
+</style></head><body>
+<h1>TaskMaster – live notifications demo</h1>
+<p>See the SSE feature working: log in two users in two browser tabs (or use Swagger for the other user), then assign a task / comment and watch events arrive here instantly. API docs: <a href="/api-docs">/api-docs</a>.</p>
+<div class="card">
+ <b>1. Log in</b><br>
+ <input id="email" placeholder="email" value="alice@example.com">
+ <input id="pw" type="password" placeholder="password" value="Passw0rdX">
+ <button onclick="auth('login')">Login</button> <button onclick="auth('register')">Register (name = email prefix)</button>
+ <div><small id="who">Not logged in</small></div>
+</div>
+<div class="card">
+ <b>2. Listen for notifications</b><br>
+ <button onclick="listen()">Connect to stream</button> <button onclick="es&&es.close()">Disconnect</button>
+ <div id="log">(no events yet)</div>
+</div>
+<div class="card">
+ <b>3. Generate a task description with AI</b><br>
+ <input id="prompt" size="40" placeholder="e.g. fix login bug on mobile">
+ <button onclick="gen()">Generate</button>
+ <pre id="ai"></pre>
+</div>
+<script>
+let token = '', es;
+const $ = (id) => document.getElementById(id);
+const log = (m) => { const l = $('log'); l.textContent = (l.textContent.startsWith('(no') ? '' : l.textContent + '\n') + new Date().toLocaleTimeString() + '  ' + m; };
+async function auth(kind) {
+  const email = $('email').value, password = $('pw').value;
+  const payload = kind === 'register' ? { name: email.split('@')[0], email, password } : { email, password };
+  const r = await fetch('/api/auth/' + kind, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const d = await r.json();
+  if (!r.ok) return $('who').textContent = 'Error: ' + d.error.message;
+  token = d.token; $('who').textContent = `Logged in as ${d.user.name} (id ${d.user.id}). JWT (paste into Swagger "Authorize"): ${token}`;
+}
+function listen() {
+  if (!token) return alert('Log in first');
+  es && es.close();
+  es = new EventSource('/api/notifications/stream?token=' + encodeURIComponent(token));
+  es.addEventListener('connected', () => log('connected - waiting for events...'));
+  es.addEventListener('notification', (e) => { const n = JSON.parse(e.data); log(`[${n.type}] ${n.message}`); });
+  es.onerror = () => log('stream error / reconnecting');
+}
+async function gen() {
+  if (!token) return alert('Log in first');
+  const r = await fetch('/api/ai/task-description', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ prompt: $('prompt').value }) });
+  $('ai').textContent = JSON.stringify(await r.json(), null, 2);
+}
+</script></body></html>
